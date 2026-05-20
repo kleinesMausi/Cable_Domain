@@ -4,8 +4,8 @@ EMPTY = 0
 CABLE = 1
 TAIL = 2
 ELECTRO = 3
-SELECT = 4  # NEU: Modus zum Auswählen
-PASTE = 5   # NEU: Modus zum Platzieren
+SELECT = 4 
+PASTE = 5   
 
 COLOR_BG = (15, 15, 15)
 COLOR_GRID = (30, 30, 30)
