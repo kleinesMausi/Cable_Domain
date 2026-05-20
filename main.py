@@ -43,6 +43,7 @@ class Main:
         self.select_start = None  # (grid_x, grid_y) beim ersten Klick
         self.select_end = None    # (grid_x, grid_y) beim Ziehen
         self.saved_blueprint = None  # Liste von (rel_x, rel_y, wert)
+        self.save_electro = False
 
         self.surface = pygame.display.set_mode((screen_width, screen_height))
 
@@ -98,11 +99,6 @@ class Main:
                 s = pygame.Surface((x2 - x1, y2 - y1), pygame.SRCALPHA)
                 s.fill(COLOR_SELECT_BOX)
                 self.surface.blit(s, (x1, y1))
-
-        if self.current_tool == PASTE and self.saved_blueprint:
-            mx, my = pygame.mouse.get_pos()
-            gx = int((mx + self.cam.camera_x) // self.scaled_cell)
-            gy = int((my + self.cam.camera_y) // self.scaled_cell)
             
         if self.current_tool == PASTE and self.saved_blueprint:
             mx, my = pygame.mouse.get_pos()
@@ -112,15 +108,23 @@ class Main:
             for rx, ry, val in self.saved_blueprint:
                 sx = (gx + rx) * self.scaled_cell - self.cam.camera_x
                 sx_y = (gy + ry) * self.scaled_cell - self.cam.camera_y
-                
-                pygame.draw.rect(self.surface, COLOR_CABLE, (sx, sx_y, rect_size, rect_size))
+            
+                if self.save_electro:
+                     
+                    if val == CABLE: color = COLOR_CABLE
+                    if val == TAIL: color = COLOR_TAIL
+                    if val == ELECTRO: color = COLOR_ELECTRO
+                     
+                else:color = COLOR_CABLE
+
+                pygame.draw.rect(self.surface, color, (sx, sx_y, rect_size, rect_size))
                 pygame.draw.rect(self.surface, (255,255,255), (sx, sx_y, rect_size, rect_size), 1)
 
     def _set_caption(self):
         if self.is_paused:
-            pygame.display.set_caption(f"Cable Domain - PAUSED (Tool: {mini_trans[self.current_tool]})")
+            pygame.display.set_caption(f"Cable Domain - PAUSED (Tool: {mini_trans[self.current_tool]} | Speicher Electro: {self.save_electro})")
         else:
-            pygame.display.set_caption(f"Cable Domain - RUNNING (Active Electrons: {len(self.domain.active_list)})")
+            pygame.display.set_caption(f"Cable Domain - RUNNING (Active Electrons: {len(self.domain.active_list)} | Speicher Electro: {self.save_electro})")
 
 class Camera:
     def __init__(self):
@@ -222,6 +226,9 @@ def main():
                 if event.key == pygame.K_SPACE:
                     control_freak.is_paused = not control_freak.is_paused
 
+                if event.key == pygame.K_e:
+                    control_freak.save_electro = not control_freak.save_electro
+
                 if event.key == pygame.K_1: control_freak.current_tool = CABLE
                 if event.key == pygame.K_2: control_freak.current_tool = TAIL
                 if event.key == pygame.K_3: control_freak.current_tool = ELECTRO
@@ -292,12 +299,14 @@ def main():
 
                             if 0 <= tx < grid_width and 0 <= ty < grid_height:
                                 # Strom soll nicht mit!!!!
-                                if val in (ELECTRO, TAIL): 
+                                if not control_freak.save_electro and val in (ELECTRO, TAIL): 
                                     val = CABLE
+                                    control_freak.domain.active_list.discard((tx, ty))
 
                                 control_freak.domain.grid[tx][ty] = val
-                                control_freak.domain.active_list.discard((tx, ty))
 
+                                if control_freak.save_electro:
+                                    control_freak.domain.active_list.add((tx, ty))
                 else: 
                     control_freak.domain.grid[grid_x][grid_y] = control_freak.current_tool
 
