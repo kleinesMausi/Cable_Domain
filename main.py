@@ -40,8 +40,8 @@ class Main:
         self.is_paused = True
         self.current_tool = CABLE
 
-        self.select_start = None  # (grid_x, grid_y) beim ersten Klick
-        self.select_end = None    # (grid_x, grid_y) beim Ziehen
+        self.select_start = None
+        self.select_end = None
         self.saved_blueprint = None  # Liste von (rel_x, rel_y, wert)
         self.save_electro = False
 
@@ -58,9 +58,7 @@ class Main:
         )
         if not self.is_paused:
             self.domain.update(
-                dt = dt,
-                grid_height = self.grid_height,
-                grid_width = self.grid_width
+                dt = dt
             )
 
     def draw(self, rect_size):
@@ -77,7 +75,7 @@ class Main:
                 screen_x = x * self.scaled_cell - self.cam.camera_x
                 screen_y = y * self.scaled_cell - self.cam.camera_y
                 
-                cell_state = self.domain.grid[x][y]
+                cell_state = self.domain.get_grid_at(x, y)
 
                 if cell_state == CABLE:
                     pygame.draw.rect(self.surface, COLOR_CABLE, (screen_x, screen_y, rect_size, rect_size))
@@ -146,12 +144,17 @@ class Camera:
 
 class Grid:
     def __init__(self, grid_height, grid_width):
-        self.grid = [[EMPTY for _ in range(grid_height)] for _ in range(grid_width)]
+        self.grid = [EMPTY for _ in range(grid_height * grid_width)]
+
+        self.grid_height = grid_height
+        self.grid_width = grid_width
+
         self.active_list = set()
+
         self.sim_speed = 100
         self.sim_timer = 0
 
-    def update(self, dt, grid_height, grid_width):
+    def update(self, dt):
         self.sim_timer += dt
         if self.sim_timer >= self.sim_speed:
             self.sim_timer = 0
@@ -160,7 +163,7 @@ class Grid:
             candidates = {}
 
             for x, y in list(self.active_list):
-                cur_state = self.grid[x][y]
+                cur_state = self.get_grid_at(x, y)
 
                 if cur_state == TAIL:
                     next_grid_changes[(x, y)] = CABLE
@@ -175,8 +178,8 @@ class Grid:
 
                             nx, ny = x + dx, y + dy
 
-                            if 0 <= nx < grid_width and 0 <= ny < grid_height:
-                                if self.grid[nx][ny] == CABLE:
+                            if 0 <= nx < self.grid_width and 0 <= ny < self.grid_height:
+                                if self.get_grid_at(nx, ny) == CABLE:
                                     candidates[(nx, ny)] = candidates.get((nx, ny), 0) + 1
 
             for (x, y), head_count in candidates.items():
@@ -186,9 +189,15 @@ class Grid:
             self.active_list.clear()
 
             for (x, y), new_val in next_grid_changes.items():
-                self.grid[x][y] = new_val
+                self.set_grid_at(x, y, new_val)
                 if new_val in (ELECTRO, TAIL):
                     self.active_list.add((x, y))
+
+    def set_grid_at(self, x, y, val):
+        self.grid[x * self.grid_height + y] = val
+
+    def get_grid_at(self, x, y):
+        return self.grid[x * self.grid_height + y]
 
 
 def main():
@@ -259,7 +268,7 @@ def main():
                         blueprint = []
                         for x in range(x1, x2 + 1):
                             for y in range(y1, y2 + 1):
-                                val = control_freak.domain.grid[x][y]
+                                val = control_freak.domain.get_grid_at(x, y)
                                 if val != EMPTY:
                                     blueprint.append((x - x1, y - y1, val))
                         
@@ -303,18 +312,18 @@ def main():
                                     val = CABLE
                                     control_freak.domain.active_list.discard((tx, ty))
 
-                                control_freak.domain.grid[tx][ty] = val
+                                control_freak.domain.set_grid_at(tx, ty, val)
 
                                 if control_freak.save_electro:
                                     control_freak.domain.active_list.add((tx, ty))
                 else: 
-                    control_freak.domain.grid[grid_x][grid_y] = control_freak.current_tool
+                    control_freak.domain.set_grid_at(grid_x, grid_y, control_freak.current_tool)
 
                     if control_freak.current_tool in (ELECTRO, TAIL):
                         control_freak.domain.active_list.add((grid_x, grid_y))
 
             elif mouse_buttons[2]: # Rechtsklick (Löschen)
-                control_freak.domain.grid[grid_x][grid_y] = EMPTY
+                control_freak.domain.set_grid_at(grid_x, grid_y, EMPTY)
                 control_freak.domain.active_list.discard((grid_x, grid_y))
         
         control_freak.draw(rect_size)
