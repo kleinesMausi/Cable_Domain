@@ -1,4 +1,6 @@
 import pygame
+import array
+
 
 EMPTY = 0
 CABLE = 1
@@ -144,7 +146,7 @@ class Camera:
 
 class Grid:
     def __init__(self, grid_height, grid_width):
-        self.grid = [EMPTY for _ in range(grid_height * grid_width)]
+        self.grid = array.array('B', [EMPTY] * (grid_height * grid_width))
 
         self.grid_height = grid_height
         self.grid_width = grid_width
