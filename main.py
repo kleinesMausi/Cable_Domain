@@ -43,6 +43,7 @@ class Main:
         self.is_paused = True
         self.current_tool = CABLE
 
+        self.blueprints = {} # {"name": }
         self.select_start = None
         self.select_end = None
         self.saved_blueprint = None  # Liste von (rel_x, rel_y, wert)
@@ -411,7 +412,12 @@ def main():
             mouse_buttons = mouse_buttons
             )
         
-        if not (control_freak.gui.is_visible and control_freak.gui.sidebar_rect.collidepoint((mouse_x, mouse_y))):
+        if not (
+            (control_freak.gui.is_visible and 
+            control_freak.gui.sidebar_rect.collidepoint((mouse_x, mouse_y)))
+            or
+            control_freak.gui.toggle_button.collidepoint((mouse_x, mouse_y))
+        ):
             # if mouse is over side bar, cickies shouldnt happen behind it
             # but update should be done, so no if condition: continue
             
