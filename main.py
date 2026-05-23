@@ -39,6 +39,7 @@ class Main:
 
         self.cam = Camera()
         self.domain = Grid(self.grid_height, self.grid_width)
+        self.gui = Gui(self.screen_height)
         self.is_paused = True
         self.current_tool = CABLE
 
@@ -49,7 +50,7 @@ class Main:
 
         self.surface = pygame.display.set_mode((screen_width, screen_height))
 
-    def update(self, keys, dt):
+    def update(self, keys, dt, mouse_pos, mouse_buttons):
         self.cam.update(
             keys = keys,
             grid_height = self.grid_height,
@@ -58,10 +59,16 @@ class Main:
             screen_width = self.screen_width,
             cell_size = self.scaled_cell
         )
+
         if not self.is_paused:
             self.domain.update(
                 dt = dt
             )
+
+        new_tool = self.gui.update(mouse_pos, mouse_buttons = mouse_buttons)
+
+        if new_tool is not None:
+            self.current_tool = new_tool
 
     def draw(self, rect_size):
         self.surface.fill(COLOR_BG)
@@ -119,6 +126,8 @@ class Main:
 
                 pygame.draw.rect(self.surface, color, (sx, sx_y, rect_size, rect_size))
                 pygame.draw.rect(self.surface, (255,255,255), (sx, sx_y, rect_size, rect_size), 1)
+
+        self.gui.draw(surface = self.surface)
 
     def _set_caption(self):
         if self.is_paused:
@@ -201,6 +210,116 @@ class Grid:
     def get_grid_at(self, x, y):
         return self.grid[x * self.grid_height + y]
 
+class Gui:
+    def __init__(self, screen_height):
+        self.screen_height = screen_height
+        self.is_visible = False
+        self.can_click = True
+        self.width = 200
+        self.sidebar_rect = pygame.Rect(0, 0, self.width, screen_height)
+        
+        self.toggle_button = pygame.Rect(10, 10, 40, 40) 
+
+        self.font = pygame.font.SysFont("Arial", 18)
+        
+        self.tool_buttons = {
+            "Cable": Button(
+                x = 10,
+                y = 60, 
+                width = 180,
+                height = 40,
+                text = "Cable",
+                color = (0, 0, 0),
+                action_val = CABLE
+            ),
+            "Tail": Button(
+                x = 10,
+                y = 110, 
+                width = 180,
+                height = 40,
+                text = "Tail",
+                color = (0, 0, 0),
+                action_val = TAIL
+            ),
+            "Electro": Button(
+                x = 10,
+                y = 160, 
+                width = 180,
+                height = 40,
+                text = "Electro",
+                color = (0, 0, 0),
+                action_val = ELECTRO
+            ),
+            "Select": Button(
+                x = 10,
+                y = 210, 
+                width = 180,
+                height = 40,
+                text = "Select",
+                color = (0, 0, 0),
+                action_val = SELECT
+            ),
+            "Pase": Button(
+                x = 10,
+                y = 260, 
+                width = 180,
+                height = 40,
+                text = "Paste",
+                color = (0, 0, 0),
+                action_val = PASTE
+            )
+        }
+
+    def draw(self, surface):
+
+        color_toggle = (0, 255, 0) if self.is_visible else (255, 0, 0)
+        
+        if self.is_visible:
+
+            pygame.draw.rect(surface, (40, 40, 40), self.sidebar_rect)
+
+            for button in self.tool_buttons.values():
+                button.draw(surface = surface, font = self.font)
+
+        pygame.draw.rect(surface, color_toggle, self.toggle_button)
+
+    def update(self, mouse_pos, mouse_buttons):
+
+        if not mouse_buttons[0]:
+            self.can_click = True
+
+        if mouse_buttons[0] and self.toggle_button.collidepoint(mouse_pos) and self.can_click:
+            self.is_visible = not self.is_visible
+            self.can_click = False
+
+        # dont know if this should be here or in the Main update
+        if self.is_visible:
+            for button in self.tool_buttons.values():
+
+                if mouse_buttons[0] and button.is_clicked(mouse_pos) and self.can_click:
+                   self.can_click = False
+                   return button.action_val
+
+        return None
+
+class Button:
+    def __init__(self, x, y, width, height, text, color, action_val):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.text = text
+        self.color = color
+        self.action_val = action_val 
+
+    def draw(self, surface, font):
+
+        pygame.draw.rect(surface, self.color, self.rect)
+        pygame.draw.rect(surface, (255, 255, 255), self.rect, 2) 
+        
+        text_surf = font.render(self.text, True, (255, 255, 255))
+        text_rect = text_surf.get_rect(center=self.rect.center)
+        surface.blit(text_surf, text_rect)
+
+    def is_clicked(self, mouse_pos):
+        return self.rect.collidepoint(mouse_pos)
 
 def main():
     screen_height = 600
@@ -282,51 +401,60 @@ def main():
                     control_freak.select_start = None
                     control_freak.select_end = None
 
-        control_freak.update(keys = keys, dt = dt)
-        
         mouse_buttons = pygame.mouse.get_pressed()
         mouse_x, mouse_y = pygame.mouse.get_pos()
+
+        control_freak.update(
+            keys = keys, 
+            dt = dt, 
+            mouse_pos = (mouse_x, mouse_y),
+            mouse_buttons = mouse_buttons
+            )
         
-        real_x = mouse_x + control_freak.cam.camera_x
-        real_y = mouse_y + control_freak.cam.camera_y
-        
-        grid_x = int(real_x // control_freak.scaled_cell)
-        grid_y = int(real_y // control_freak.scaled_cell)
+        if not (control_freak.gui.is_visible and control_freak.gui.sidebar_rect.collidepoint((mouse_x, mouse_y))):
+            # if mouse is over side bar, cickies shouldnt happen behind it
+            # but update should be done, so no if condition: continue
+            
+            real_x = mouse_x + control_freak.cam.camera_x
+            real_y = mouse_y + control_freak.cam.camera_y
+            
+            grid_x = int(real_x // control_freak.scaled_cell)
+            grid_y = int(real_y // control_freak.scaled_cell)
 
-        if 0 <= grid_x < grid_width and 0 <= grid_y < grid_height:
-            if mouse_buttons[0]: # Linksklick (setzen)
-                
-                if control_freak.current_tool == SELECT:
-
-                    if control_freak.select_start is None:
-                        control_freak.select_start = (grid_x, grid_y)
-
-                    control_freak.select_end = (grid_x, grid_y)
+            if 0 <= grid_x < grid_width and 0 <= grid_y < grid_height:
+                if mouse_buttons[0]: # Linksklick (setzen)
                     
-                elif control_freak.current_tool == PASTE:
-                    if control_freak.saved_blueprint:
-                        for rx, ry, val in control_freak.saved_blueprint:
-                            tx, ty = grid_x + rx, grid_y + ry
+                    if control_freak.current_tool == SELECT:
 
-                            if 0 <= tx < grid_width and 0 <= ty < grid_height:
-                                # Strom soll nicht mit!!!!
-                                if not control_freak.save_electro and val in (ELECTRO, TAIL): 
-                                    val = CABLE
-                                    control_freak.domain.active_list.discard((tx, ty))
+                        if control_freak.select_start is None:
+                            control_freak.select_start = (grid_x, grid_y)
 
-                                control_freak.domain.set_grid_at(tx, ty, val)
+                        control_freak.select_end = (grid_x, grid_y)
+                        
+                    elif control_freak.current_tool == PASTE:
+                        if control_freak.saved_blueprint:
+                            for rx, ry, val in control_freak.saved_blueprint:
+                                tx, ty = grid_x + rx, grid_y + ry
 
-                                if control_freak.save_electro:
-                                    control_freak.domain.active_list.add((tx, ty))
-                else: 
-                    control_freak.domain.set_grid_at(grid_x, grid_y, control_freak.current_tool)
+                                if 0 <= tx < grid_width and 0 <= ty < grid_height:
+                                    # Strom soll nicht mit!!!!
+                                    if not control_freak.save_electro and val in (ELECTRO, TAIL): 
+                                        val = CABLE
+                                        control_freak.domain.active_list.discard((tx, ty))
 
-                    if control_freak.current_tool in (ELECTRO, TAIL):
-                        control_freak.domain.active_list.add((grid_x, grid_y))
+                                    control_freak.domain.set_grid_at(tx, ty, val)
 
-            elif mouse_buttons[2]: # Rechtsklick (Löschen)
-                control_freak.domain.set_grid_at(grid_x, grid_y, EMPTY)
-                control_freak.domain.active_list.discard((grid_x, grid_y))
+                                    if control_freak.save_electro:
+                                        control_freak.domain.active_list.add((tx, ty))
+                    else: 
+                        control_freak.domain.set_grid_at(grid_x, grid_y, control_freak.current_tool)
+
+                        if control_freak.current_tool in (ELECTRO, TAIL):
+                            control_freak.domain.active_list.add((grid_x, grid_y))
+
+                elif mouse_buttons[2]: # Rechtsklick (Löschen)
+                    control_freak.domain.set_grid_at(grid_x, grid_y, EMPTY)
+                    control_freak.domain.active_list.discard((grid_x, grid_y))
         
         control_freak.draw(rect_size)
         pygame.display.update()
