@@ -39,11 +39,11 @@ class Main:
 
         self.cam = Camera()
         self.domain = Grid(self.grid_height, self.grid_width)
-        self.gui = Gui(self.screen_height)
+        self.gui = Gui(self.screen_height, self.screen_width)
         self.is_paused = True
         self.current_tool = CABLE
 
-        self.blueprints = {} # {"name": }
+        self.blueprints = {} # {"name": [...]}
         self.select_start = None
         self.select_end = None
         self.saved_blueprint = None  # Liste von (rel_x, rel_y, wert)
@@ -52,24 +52,28 @@ class Main:
         self.surface = pygame.display.set_mode((screen_width, screen_height))
 
     def update(self, keys, dt, mouse_pos, mouse_buttons):
-        self.cam.update(
-            keys = keys,
-            grid_height = self.grid_height,
-            grid_width = self.grid_width,
-            screen_height = self.screen_height,
-            screen_width = self.screen_width,
-            cell_size = self.scaled_cell
-        )
+        if not self.gui.is_naming:
+            self.cam.update(
+                keys = keys,
+                grid_height = self.grid_height,
+                grid_width = self.grid_width,
+                screen_height = self.screen_height,
+                screen_width = self.screen_width,
+                cell_size = self.scaled_cell
+            )
 
         if not self.is_paused:
             self.domain.update(
                 dt = dt
             )
 
-        new_tool = self.gui.update(mouse_pos, mouse_buttons = mouse_buttons)
+        response = self.gui.update(mouse_pos, mouse_buttons)
 
-        if new_tool is not None:
-            self.current_tool = new_tool
+        if response["tool"] is not None:
+            self.current_tool = response["tool"]
+
+        if response["blueprint"] is not None:
+            self.saved_blueprint = response["blueprint"]
 
     def draw(self, rect_size):
         self.surface.fill(COLOR_BG)
@@ -128,7 +132,22 @@ class Main:
                 pygame.draw.rect(self.surface, color, (sx, sx_y, rect_size, rect_size))
                 pygame.draw.rect(self.surface, (255,255,255), (sx, sx_y, rect_size, rect_size), 1)
 
-        self.gui.draw(surface = self.surface)
+        self.gui.draw(surface = self.surface, amount_blueprints = len(self.blueprints.keys()))
+
+    def save_current_blueprint(self):
+        name = self.gui.input_text.strip()
+        amount = len(self.blueprints.keys())
+
+        if name == "":
+            name = f"Blueprint {amount + 1}"
+        
+        if name in self.blueprints:
+            name += f" ({amount + 1})" 
+            
+        self.blueprints[name] = self.saved_blueprint
+        self.gui.blueprint_buttons.append(BlueprintButton(name, self.saved_blueprint))
+        self.gui.is_naming = False
+        self.gui.input_text = ""
 
     def _set_caption(self):
         if self.is_paused:
@@ -143,14 +162,15 @@ class Camera:
         self.scroll_speed = 15
 
     def update(self, keys, grid_height, grid_width, screen_height, screen_width, cell_size):
+
         if keys[pygame.K_a] or keys[pygame.K_LEFT]:  self.camera_x -= self.scroll_speed
         if keys[pygame.K_d] or keys[pygame.K_RIGHT]: self.camera_x += self.scroll_speed
         if keys[pygame.K_w] or keys[pygame.K_UP]:    self.camera_y -= self.scroll_speed
         if keys[pygame.K_s] or keys[pygame.K_DOWN]:  self.camera_y += self.scroll_speed
-        
-        max_x = max(0, grid_width * cell_size - screen_width)
-        max_y = max(0, grid_height * cell_size - screen_height)
 
+        max_x = max(0, grid_width * cell_size - screen_width)
+        max_y = max(0, grid_height * cell_size - screen_height)   
+  
         self.camera_x = max(0, min(self.camera_x, max_x))
         self.camera_y = max(0, min(self.camera_y, max_y))
 
@@ -212,19 +232,42 @@ class Grid:
         return self.grid[x * self.grid_height + y]
 
 class Gui:
-    def __init__(self, screen_height):
+    def __init__(self, screen_height, screen_width):
+
         self.screen_height = screen_height
+
         self.is_visible = False
-        self.can_click = True
+        self.can_click = False
         self.width = 200
         self.sidebar_rect = pygame.Rect(0, 0, self.width, screen_height)
         
         self.toggle_button = pygame.Rect(10, 10, 40, 40) 
 
         self.font = pygame.font.SysFont("Arial", 18)
+
+        self.input_text = ""
+        self.is_naming = False  
+        self.naming_rect = pygame.Rect(
+            screen_width // 4, 
+            screen_height // 4,
+            screen_width // 2,
+            screen_height // 2, 
+            )
+        self.quit_button = pygame.Rect(
+            self.naming_rect.left + 25, 
+            self.naming_rect.bottom - 100, 
+            75, 
+            75
+            )
+        self.input_box = pygame.Rect(
+            self.naming_rect.x + 20, 
+            self.naming_rect.y + 60, 
+            self.naming_rect.width - 40, 
+            40
+            )
         
         self.tool_buttons = {
-            "Cable": Button(
+            "Cable": ToolButton(
                 x = 10,
                 y = 60, 
                 width = 180,
@@ -233,7 +276,7 @@ class Gui:
                 color = (0, 0, 0),
                 action_val = CABLE
             ),
-            "Tail": Button(
+            "Tail": ToolButton(
                 x = 10,
                 y = 110, 
                 width = 180,
@@ -242,7 +285,7 @@ class Gui:
                 color = (0, 0, 0),
                 action_val = TAIL
             ),
-            "Electro": Button(
+            "Electro": ToolButton(
                 x = 10,
                 y = 160, 
                 width = 180,
@@ -251,7 +294,7 @@ class Gui:
                 color = (0, 0, 0),
                 action_val = ELECTRO
             ),
-            "Select": Button(
+            "Select": ToolButton(
                 x = 10,
                 y = 210, 
                 width = 180,
@@ -260,7 +303,7 @@ class Gui:
                 color = (0, 0, 0),
                 action_val = SELECT
             ),
-            "Pase": Button(
+            "Pase": ToolButton(
                 x = 10,
                 y = 260, 
                 width = 180,
@@ -271,7 +314,10 @@ class Gui:
             )
         }
 
-    def draw(self, surface):
+        self.blueprint_buttons = []
+        self.scroll_offset = 0
+
+    def draw(self, surface, amount_blueprints):
 
         color_toggle = (0, 255, 0) if self.is_visible else (255, 0, 0)
         
@@ -282,28 +328,71 @@ class Gui:
             for button in self.tool_buttons.values():
                 button.draw(surface = surface, font = self.font)
 
+            list_area_rect = pygame.Rect(0, 310, 200, self.screen_height - 310) 
+            list_subsurface = surface.subsurface(list_area_rect)
+
+            for i, button in enumerate(self.blueprint_buttons):
+                y_pos = i * 40 - self.scroll_offset 
+                button.draw(list_subsurface, 5, y_pos, self.font)
+
         pygame.draw.rect(surface, color_toggle, self.toggle_button)
 
+  
+
+        if self.is_naming:
+            # Gesamt hintergrund Transparent machen (also so ein dunklen/schwarzen schleier drüber)
+            overlay = pygame.Surface((surface.get_width(), surface.get_height()), pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 150)) 
+            surface.blit(overlay, (0, 0))
+
+            pygame.draw.rect(surface, (50, 50, 50), self.naming_rect)
+            pygame.draw.rect(surface, (200, 200, 200), self.naming_rect, 2)
+
+            title_surf = self.font.render("Save Blueprint As:", True, (255, 255, 255))
+            surface.blit(title_surf, (self.naming_rect.x + 20, self.naming_rect.y + 20))
+
+            pygame.draw.rect(surface, (30, 30, 30), self.input_box)
+
+            pygame.draw.rect(surface, (187, 67, 42), self.quit_button)
+            
+            text_color = (111,111,111) if self.input_text == "" else (0, 255, 0)
+            display_text = f"Blueprint {amount_blueprints + 1}" if self.input_text == "" else self.input_text
+            txt_surf = self.font.render(display_text + "|", True, text_color) # | als curser, weil hacker mans
+            surface.blit(txt_surf, (self.input_box.x + 5, self.input_box.y + 10))
+
     def update(self, mouse_pos, mouse_buttons):
+
+        response = {"tool": None, "blueprint": None}
 
         if not mouse_buttons[0]:
             self.can_click = True
 
-        if mouse_buttons[0] and self.toggle_button.collidepoint(mouse_pos) and self.can_click:
+        if self.can_click and mouse_buttons[0] and self.toggle_button.collidepoint(mouse_pos):
             self.is_visible = not self.is_visible
             self.can_click = False
 
-        # dont know if this should be here or in the Main update
+        if self.is_naming and self.can_click and mouse_buttons[0] and self.quit_button.collidepoint(mouse_pos):
+            self.is_naming = not self.is_naming
+            self.can_click = False
+            self.input_text = ""
+                
+
+        for blue_button in self.blueprint_buttons:
+            if self.can_click and mouse_buttons[0] and blue_button.is_clicked(mouse_pos, y_offset = 310):
+                response["blueprint"] = blue_button.data
+                response["tool"] = PASTE 
+                self.can_click = False
+                
         if self.is_visible:
             for button in self.tool_buttons.values():
+                if self.can_click and mouse_buttons[0] and button.is_clicked(mouse_pos):
+                    response["tool"] = button.action_val
+                    self.can_click = False
+                    break
+                
+        return response
 
-                if mouse_buttons[0] and button.is_clicked(mouse_pos) and self.can_click:
-                   self.can_click = False
-                   return button.action_val
-
-        return None
-
-class Button:
+class ToolButton:
     def __init__(self, x, y, width, height, text, color, action_val):
         self.rect = pygame.Rect(x, y, width, height)
         self.text = text
@@ -321,6 +410,25 @@ class Button:
 
     def is_clicked(self, mouse_pos):
         return self.rect.collidepoint(mouse_pos)
+
+class BlueprintButton:
+    def __init__(self, name, data):
+        self.name = name
+        self.data = data
+        self.rect = pygame.Rect(0, 0, 180, 30)
+
+    def draw(self, surface, x, y, font):
+        self.rect.topleft = (x, y)
+        pygame.draw.rect(surface, (60, 60, 60), self.rect)
+        pygame.draw.rect(surface, (200, 200, 200), self.rect, 1)
+        
+        txt_surf = font.render(self.name, True, (255, 255, 255))
+        surface.blit(txt_surf, (x + 5, y + 5))
+
+    def is_clicked(self, mouse_pos, y_offset):
+        screen_rect = self.rect.copy()
+        screen_rect.y += y_offset 
+        return screen_rect.collidepoint(mouse_pos)
 
 def main():
     screen_height = 600
@@ -353,6 +461,23 @@ def main():
                 control_freak.is_running = False
 
             if event.type == pygame.KEYDOWN:
+
+                if control_freak.gui.is_naming:
+                    if event.key == pygame.K_BACKSPACE:
+                        control_freak.gui.input_text = control_freak.gui.input_text[:-1]
+                    elif event.key == pygame.K_RETURN:
+                        control_freak.save_current_blueprint()
+                    elif len(control_freak.gui.input_text) < 25:
+                        control_freak.gui.input_text += event.unicode
+
+                if (event.key == pygame.K_k
+                    and 
+                    control_freak.saved_blueprint is not None
+                    and 
+                    control_freak.current_tool == PASTE
+                    ):
+                    control_freak.gui.is_naming = True
+                    control_freak.is_paused = True
 
                 if event.key == pygame.K_SPACE:
                     control_freak.is_paused = not control_freak.is_paused
@@ -395,12 +520,12 @@ def main():
                                     blueprint.append((x - x1, y - y1, val))
                         
                         control_freak.saved_blueprint = blueprint
-                        print(f"[Blueprint] Gespeichert! {len(blueprint)} Zellen kopiert.")
                         
                         control_freak.current_tool = PASTE
                     
                     control_freak.select_start = None
                     control_freak.select_end = None
+
 
         mouse_buttons = pygame.mouse.get_pressed()
         mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -417,6 +542,8 @@ def main():
             control_freak.gui.sidebar_rect.collidepoint((mouse_x, mouse_y)))
             or
             control_freak.gui.toggle_button.collidepoint((mouse_x, mouse_y))
+            or 
+            control_freak.gui.is_naming
         ):
             # if mouse is over side bar, cickies shouldnt happen behind it
             # but update should be done, so no if condition: continue
