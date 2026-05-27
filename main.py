@@ -214,7 +214,7 @@ class Main:
                             val = States.CABLE
                             self.domain.active_list.discard((true_x, true_y))
 
-                        self.domain.set_grid_at(true_x)
+                        self.domain.set_grid_at(true_x, true_y, val)
 
                         if self.save_electro:
                             self.domain.active_list.add((true_x, true_y))
