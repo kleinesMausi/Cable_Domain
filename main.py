@@ -1,29 +1,17 @@
+from blueprint_button import BlueprintButton
+from tool_button import ToolButton
+from camera import Camera
+from constants import *
+from grid import Grid
+from gui import Gui
+
 import pygame
-import array
 
+# y offset in gui.py is still pretty much unused (scrollinng through mutliple blueprints, if they dont fit on the subsurface anymore)
+# Some stuff is still just rando magic numbers, Fix that
+# most likely a lot of intertwined logic, that can massively be entangled
+# MAKE F****** PERSISTANT MEMORY YOU DUMB ****
 
-EMPTY = 0
-CABLE = 1
-TAIL = 2
-ELECTRO = 3
-SELECT = 4 
-PASTE = 5   
-
-COLOR_BG = (15, 15, 15)
-COLOR_GRID = (30, 30, 30)
-COLOR_CABLE = (197, 106, 57)
-COLOR_TAIL = (137, 55, 39)
-COLOR_ELECTRO = (241, 196, 15)
-COLOR_SELECT_BOX = (52, 152, 219, 100) # vierter wert für transparenz, lol
-
-mini_trans = {
-    EMPTY : "Empty Cell",
-    CABLE : "Cable",
-    TAIL : "Tail",
-    ELECTRO : "Electro",
-    SELECT: "Select Area",
-    PASTE: "Paste Blueprint"
-}
 
 class Main:
     def __init__(self, screen_width, screen_height, grid_height, grid_width):
@@ -37,11 +25,11 @@ class Main:
         self.scaled_cell = 20
         self.visibility_scale = 100
 
-        self.cam = Camera()
+        self.cam = Camera(screen_height = self.screen_height, screen_width = self.screen_width)
         self.domain = Grid(self.grid_height, self.grid_width)
         self.gui = Gui(self.screen_height, self.screen_width)
         self.is_paused = True
-        self.current_tool = CABLE
+        self.current_tool = States.CABLE
 
         self.blueprints = {} # {"name": [...]}
         self.select_start = None
@@ -57,8 +45,6 @@ class Main:
                 keys = keys,
                 grid_height = self.grid_height,
                 grid_width = self.grid_width,
-                screen_height = self.screen_height,
-                screen_width = self.screen_width,
                 cell_size = self.scaled_cell
             )
 
@@ -76,32 +62,20 @@ class Main:
             self.saved_blueprint = response["blueprint"]
 
     def draw(self, rect_size):
-        self.surface.fill(COLOR_BG)
+        self.surface.fill(Colors.BG)
 
-        start_col = int(self.cam.camera_x // self.scaled_cell)
-        end_col = int((self.cam.camera_x + self.screen_width) // self.scaled_cell + 1)
-        start_row = int(self.cam.camera_y // self.scaled_cell)
-        end_row = int((self.cam.camera_y + self.screen_height) // self.scaled_cell + 1)
-        
-        for x in range(max(0, start_col), min(self.grid_width, end_col)):
-            for y in range(max(0, start_row), min(self.grid_height, end_row)):
-                
-                screen_x = x * self.scaled_cell - self.cam.camera_x
-                screen_y = y * self.scaled_cell - self.cam.camera_y
-                
-                cell_state = self.domain.get_grid_at(x, y)
+        self.domain.draw(
+            surface = self.surface, 
+            camera = self.cam,
+            scaled_cell = self.scaled_cell,
+            rect_size = rect_size,
+            visibility_scale = self.visibility_scale,
+            grid_width = self.grid_width,
+            grid_height = self.grid_height
+        )
 
-                if cell_state == CABLE:
-                    pygame.draw.rect(self.surface, COLOR_CABLE, (screen_x, screen_y, rect_size, rect_size))
-                elif cell_state == TAIL:
-                    pygame.draw.rect(self.surface, COLOR_TAIL, (screen_x, screen_y, rect_size, rect_size))
-                elif cell_state == ELECTRO:
-                    pygame.draw.rect(self.surface, COLOR_ELECTRO, (screen_x, screen_y, rect_size, rect_size))
-                else:
-                    if self.visibility_scale > 40: 
-                        pygame.draw.rect(self.surface, COLOR_GRID, (screen_x, screen_y, int(self.scaled_cell), int(self.scaled_cell)), 1)
                     
-        if self.current_tool == SELECT and self.select_start and self.select_end:
+        if self.current_tool == States.SELECT and self.select_start and self.select_end:
             x1 = min(self.select_start[0], self.select_end[0]) * self.scaled_cell - self.cam.camera_x
             y1 = min(self.select_start[1], self.select_end[1]) * self.scaled_cell - self.cam.camera_y
             x2 = (max(self.select_start[0], self.select_end[0]) + 1) * self.scaled_cell - self.cam.camera_x
@@ -109,10 +83,10 @@ class Main:
             
             if x2 - x1 > 0 and y2 - y1 > 0:
                 s = pygame.Surface((x2 - x1, y2 - y1), pygame.SRCALPHA)
-                s.fill(COLOR_SELECT_BOX)
+                s.fill(Colors.SELECT_BOX)
                 self.surface.blit(s, (x1, y1))
             
-        if self.current_tool == PASTE and self.saved_blueprint:
+        if self.current_tool == States.PASTE and self.saved_blueprint:
             mx, my = pygame.mouse.get_pos()
             gx = int((mx + self.cam.camera_x) // self.scaled_cell)
             gy = int((my + self.cam.camera_y) // self.scaled_cell)
@@ -123,11 +97,11 @@ class Main:
             
                 if self.save_electro:
                      
-                    if val == CABLE: color = COLOR_CABLE
-                    if val == TAIL: color = COLOR_TAIL
-                    if val == ELECTRO: color = COLOR_ELECTRO
+                    if val == States.CABLE: color = Colors.CABLE
+                    if val == States.TAIL: color = Colors.TAIL
+                    if val == States.ELECTRO: color = Colors.ELECTRO
                      
-                else:color = COLOR_CABLE
+                else:color = Colors.CABLE
 
                 pygame.draw.rect(self.surface, color, (sx, sx_y, rect_size, rect_size))
                 pygame.draw.rect(self.surface, (255,255,255), (sx, sx_y, rect_size, rect_size), 1)
@@ -149,286 +123,146 @@ class Main:
         self.gui.is_naming = False
         self.gui.input_text = ""
 
+    def handle_input(self, keys):
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT: 
+                self.is_running = False
+
+            if event.type == pygame.KEYDOWN:
+
+                if self.gui.is_naming:
+                    if event.key == pygame.K_BACKSPACE:
+                        self.gui.input_text = self.gui.input_text[:-1]
+                    elif event.key == pygame.K_RETURN:
+                        self.save_current_blueprint()
+                    elif len(self.gui.input_text) < 25:
+                        self.gui.input_text += event.unicode
+
+                if (event.key == pygame.K_k
+                    and 
+                    self.saved_blueprint is not None
+                    and 
+                    self.current_tool == States.PASTE
+                    ):
+                    self.gui.is_naming = True
+                    self.is_paused = True
+
+                if event.key == pygame.K_SPACE:
+                    self.is_paused = not self.is_paused
+
+                if event.key == pygame.K_e:
+                    self.save_electro = not self.save_electro
+
+                if event.key == pygame.K_1: self.current_tool = States.CABLE
+                if event.key == pygame.K_2: self.current_tool = States.TAIL
+                if event.key == pygame.K_3: self.current_tool = States.ELECTRO
+                if event.key == pygame.K_4: self.current_tool = States.SELECT
+                if event.key == pygame.K_5: self.current_tool = States.PASTE
+
+                if keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL]:
+
+                    if event.key == pygame.K_MINUS:
+                        self.visibility_scale = max(25, self.visibility_scale - 5)
+
+                    elif event.key == pygame.K_PLUS: 
+                        self.visibility_scale = min(250, self.visibility_scale + 5)
+
+
+            if event.type == pygame.MOUSEBUTTONUP:
+                # 1 -> Linksklick (halt nur hoch, also nicht klick
+                #                  sondern maybe Linksreleas?)
+                if event.button == 1 and self.current_tool == States.SELECT:
+                    if self.select_start and self.select_end:
+
+                        x1 = min(self.select_start[0], self.select_end[0])
+                        y1 = min(self.select_start[1], self.select_end[1])
+                        x2 = max(self.select_start[0], self.select_end[0])
+                        y2 = max(self.select_start[1], self.select_end[1])
+                        
+                        # Blaupause (relativ zur oberen linken Ecke x1, y1)
+                        self.saved_blueprint = []
+                        for x in range(x1, x2 + 1):
+                            for y in range(y1, y2 + 1):
+                                val = self.domain.get_grid_at(x, y)
+                                if val != States.EMPTY:
+                                    self.saved_blueprint.append((x - x1, y - y1, val))
+                        
+                        self.current_tool = States.PASTE
+                    
+                    self.select_start = None
+                    self.select_end = None
+
+    def handle_blueprint(self, grid_x, grid_y):
+        if self.current_tool == States.SELECT:
+
+            if self.select_start is None:
+                self.select_start = (grid_x, grid_y)
+
+            self.select_end = (grid_x, grid_y)
+
+            return True
+            
+        elif self.current_tool == States.PASTE:
+            if self.saved_blueprint:
+                for relative_x, relative_y, val in self.saved_blueprint:
+                    true_x, true_y = grid_x + relative_x, grid_y + relative_y
+
+                    if 0 <= true_x < self.grid_width and 0 <= true_y < self.grid_height:
+
+                        if not self.save_electro and val in (States.ELECTRO, States.TAIL): 
+                            val = States.CABLE
+                            self.domain.active_list.discard((true_x, true_y))
+
+                        self.domain.set_grid_at(true_x)
+
+                        if self.save_electro:
+                            self.domain.active_list.add((true_x, true_y))
+            
+            return True
+        
+        return False
+
+    def handle_placement(self, mouse_x, mouse_y, mouse_buttons):
+
+        if self.gui.is_visible and self.gui.sidebar_rect.collidepoint((mouse_x, mouse_y)):
+            return
+        
+        if self.gui.toggle_button.collidepoint((mouse_x, mouse_y)):
+            return
+        
+        if self.gui.is_naming:
+            return
+
+
+        real_x = mouse_x + self.cam.camera_x
+        real_y = mouse_y + self.cam.camera_y
+        
+        grid_x = int(real_x // self.scaled_cell)
+        grid_y = int(real_y // self.scaled_cell)
+
+        if 0 <= grid_x < self.grid_width and 0 <= grid_y < self.grid_height:
+            if mouse_buttons[0]: # Linksklick (setzen)
+                
+                if not self.handle_blueprint(grid_x = grid_x, grid_y = grid_y):
+
+                    self.domain.set_grid_at(grid_x, grid_y, self.current_tool)
+
+                    if self.current_tool in (States.ELECTRO, States.TAIL):
+                        self.domain.active_list.add((grid_x, grid_y))
+
+            elif mouse_buttons[2]: # Rechtsklick (Löschen)
+                self.domain.set_grid_at(grid_x, grid_y, States.EMPTY)
+                self.domain.active_list.discard((grid_x, grid_y))
+
+
     def _set_caption(self):
         if self.is_paused:
-            pygame.display.set_caption(f"Cable Domain - PAUSED (Tool: {mini_trans[self.current_tool]} | Speicher Electro: {self.save_electro})")
+            pygame.display.set_caption(f"Cable Domain - PAUSED (Tool: {MINI_TRANS[self.current_tool]} | Speicher Electro: {self.save_electro})")
         else:
             pygame.display.set_caption(f"Cable Domain - RUNNING (Active Electrons: {len(self.domain.active_list)} | Speicher Electro: {self.save_electro})")
 
-class Camera:
-    def __init__(self):
-        self.camera_x = 0
-        self.camera_y = 0
-        self.scroll_speed = 15
 
-    def update(self, keys, grid_height, grid_width, screen_height, screen_width, cell_size):
-
-        if keys[pygame.K_a] or keys[pygame.K_LEFT]:  self.camera_x -= self.scroll_speed
-        if keys[pygame.K_d] or keys[pygame.K_RIGHT]: self.camera_x += self.scroll_speed
-        if keys[pygame.K_w] or keys[pygame.K_UP]:    self.camera_y -= self.scroll_speed
-        if keys[pygame.K_s] or keys[pygame.K_DOWN]:  self.camera_y += self.scroll_speed
-
-        max_x = max(0, grid_width * cell_size - screen_width)
-        max_y = max(0, grid_height * cell_size - screen_height)   
-  
-        self.camera_x = max(0, min(self.camera_x, max_x))
-        self.camera_y = max(0, min(self.camera_y, max_y))
-
-class Grid:
-    def __init__(self, grid_height, grid_width):
-        self.grid = array.array('B', [EMPTY] * (grid_height * grid_width))
-
-        self.grid_height = grid_height
-        self.grid_width = grid_width
-
-        self.active_list = set()
-
-        self.sim_speed = 100
-        self.sim_timer = 0
-
-    def update(self, dt):
-        self.sim_timer += dt
-        if self.sim_timer >= self.sim_speed:
-            self.sim_timer = 0
-
-            next_grid_changes = {}
-            candidates = {}
-
-            for x, y in list(self.active_list):
-                cur_state = self.get_grid_at(x, y)
-
-                if cur_state == TAIL:
-                    next_grid_changes[(x, y)] = CABLE
-
-                elif cur_state == ELECTRO:
-                    next_grid_changes[(x, y)] = TAIL
-
-                    for dx in (-1, 0, 1):
-                        for dy in (-1, 0, 1):
-                            if dx == 0 and dy == 0:
-                                continue
-
-                            nx, ny = x + dx, y + dy
-
-                            if 0 <= nx < self.grid_width and 0 <= ny < self.grid_height:
-                                if self.get_grid_at(nx, ny) == CABLE:
-                                    candidates[(nx, ny)] = candidates.get((nx, ny), 0) + 1
-
-            for (x, y), head_count in candidates.items():
-                if 0 < head_count <= 2:
-                    next_grid_changes[(x, y)] = ELECTRO
-            
-            self.active_list.clear()
-
-            for (x, y), new_val in next_grid_changes.items():
-                self.set_grid_at(x, y, new_val)
-                if new_val in (ELECTRO, TAIL):
-                    self.active_list.add((x, y))
-
-    def set_grid_at(self, x, y, val):
-        self.grid[x * self.grid_height + y] = val
-
-    def get_grid_at(self, x, y):
-        return self.grid[x * self.grid_height + y]
-
-class Gui:
-    def __init__(self, screen_height, screen_width):
-
-        self.screen_height = screen_height
-
-        self.is_visible = False
-        self.can_click = False
-        self.width = 200
-        self.sidebar_rect = pygame.Rect(0, 0, self.width, screen_height)
-        
-        self.toggle_button = pygame.Rect(10, 10, 40, 40) 
-
-        self.font = pygame.font.SysFont("Arial", 18)
-
-        self.input_text = ""
-        self.is_naming = False  
-        self.naming_rect = pygame.Rect(
-            screen_width // 4, 
-            screen_height // 4,
-            screen_width // 2,
-            screen_height // 2, 
-            )
-        self.quit_button = pygame.Rect(
-            self.naming_rect.left + 25, 
-            self.naming_rect.bottom - 100, 
-            75, 
-            75
-            )
-        self.input_box = pygame.Rect(
-            self.naming_rect.x + 20, 
-            self.naming_rect.y + 60, 
-            self.naming_rect.width - 40, 
-            40
-            )
-        
-        self.tool_buttons = {
-            "Cable": ToolButton(
-                x = 10,
-                y = 60, 
-                width = 180,
-                height = 40,
-                text = "Cable",
-                color = (0, 0, 0),
-                action_val = CABLE
-            ),
-            "Tail": ToolButton(
-                x = 10,
-                y = 110, 
-                width = 180,
-                height = 40,
-                text = "Tail",
-                color = (0, 0, 0),
-                action_val = TAIL
-            ),
-            "Electro": ToolButton(
-                x = 10,
-                y = 160, 
-                width = 180,
-                height = 40,
-                text = "Electro",
-                color = (0, 0, 0),
-                action_val = ELECTRO
-            ),
-            "Select": ToolButton(
-                x = 10,
-                y = 210, 
-                width = 180,
-                height = 40,
-                text = "Select",
-                color = (0, 0, 0),
-                action_val = SELECT
-            ),
-            "Pase": ToolButton(
-                x = 10,
-                y = 260, 
-                width = 180,
-                height = 40,
-                text = "Paste",
-                color = (0, 0, 0),
-                action_val = PASTE
-            )
-        }
-
-        self.blueprint_buttons = []
-        self.scroll_offset = 0
-
-    def draw(self, surface, amount_blueprints):
-
-        color_toggle = (0, 255, 0) if self.is_visible else (255, 0, 0)
-        
-        if self.is_visible:
-
-            pygame.draw.rect(surface, (40, 40, 40), self.sidebar_rect)
-
-            for button in self.tool_buttons.values():
-                button.draw(surface = surface, font = self.font)
-
-            list_area_rect = pygame.Rect(0, 310, 200, self.screen_height - 310) 
-            list_subsurface = surface.subsurface(list_area_rect)
-
-            for i, button in enumerate(self.blueprint_buttons):
-                y_pos = i * 40 - self.scroll_offset 
-                button.draw(list_subsurface, 5, y_pos, self.font)
-
-        pygame.draw.rect(surface, color_toggle, self.toggle_button)
-
-  
-
-        if self.is_naming:
-            # Gesamt hintergrund Transparent machen (also so ein dunklen/schwarzen schleier drüber)
-            overlay = pygame.Surface((surface.get_width(), surface.get_height()), pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 150)) 
-            surface.blit(overlay, (0, 0))
-
-            pygame.draw.rect(surface, (50, 50, 50), self.naming_rect)
-            pygame.draw.rect(surface, (200, 200, 200), self.naming_rect, 2)
-
-            title_surf = self.font.render("Save Blueprint As:", True, (255, 255, 255))
-            surface.blit(title_surf, (self.naming_rect.x + 20, self.naming_rect.y + 20))
-
-            pygame.draw.rect(surface, (30, 30, 30), self.input_box)
-
-            pygame.draw.rect(surface, (187, 67, 42), self.quit_button)
-            
-            text_color = (111,111,111) if self.input_text == "" else (0, 255, 0)
-            display_text = f"Blueprint {amount_blueprints + 1}" if self.input_text == "" else self.input_text
-            txt_surf = self.font.render(display_text + "|", True, text_color) # | als curser, weil hacker mans
-            surface.blit(txt_surf, (self.input_box.x + 5, self.input_box.y + 10))
-
-    def update(self, mouse_pos, mouse_buttons):
-
-        response = {"tool": None, "blueprint": None}
-
-        if not mouse_buttons[0]:
-            self.can_click = True
-
-        if self.can_click and mouse_buttons[0] and self.toggle_button.collidepoint(mouse_pos):
-            self.is_visible = not self.is_visible
-            self.can_click = False
-
-        if self.is_naming and self.can_click and mouse_buttons[0] and self.quit_button.collidepoint(mouse_pos):
-            self.is_naming = not self.is_naming
-            self.can_click = False
-            self.input_text = ""
-                
-
-        for blue_button in self.blueprint_buttons:
-            if self.can_click and mouse_buttons[0] and blue_button.is_clicked(mouse_pos, y_offset = 310):
-                response["blueprint"] = blue_button.data
-                response["tool"] = PASTE 
-                self.can_click = False
-                
-        if self.is_visible:
-            for button in self.tool_buttons.values():
-                if self.can_click and mouse_buttons[0] and button.is_clicked(mouse_pos):
-                    response["tool"] = button.action_val
-                    self.can_click = False
-                    break
-                
-        return response
-
-class ToolButton:
-    def __init__(self, x, y, width, height, text, color, action_val):
-        self.rect = pygame.Rect(x, y, width, height)
-        self.text = text
-        self.color = color
-        self.action_val = action_val 
-
-    def draw(self, surface, font):
-
-        pygame.draw.rect(surface, self.color, self.rect)
-        pygame.draw.rect(surface, (255, 255, 255), self.rect, 2) 
-        
-        text_surf = font.render(self.text, True, (255, 255, 255))
-        text_rect = text_surf.get_rect(center=self.rect.center)
-        surface.blit(text_surf, text_rect)
-
-    def is_clicked(self, mouse_pos):
-        return self.rect.collidepoint(mouse_pos)
-
-class BlueprintButton:
-    def __init__(self, name, data):
-        self.name = name
-        self.data = data
-        self.rect = pygame.Rect(0, 0, 180, 30)
-
-    def draw(self, surface, x, y, font):
-        self.rect.topleft = (x, y)
-        pygame.draw.rect(surface, (60, 60, 60), self.rect)
-        pygame.draw.rect(surface, (200, 200, 200), self.rect, 1)
-        
-        txt_surf = font.render(self.name, True, (255, 255, 255))
-        surface.blit(txt_surf, (x + 5, y + 5))
-
-    def is_clicked(self, mouse_pos, y_offset):
-        screen_rect = self.rect.copy()
-        screen_rect.y += y_offset 
-        return screen_rect.collidepoint(mouse_pos)
 
 def main():
     screen_height = 600
@@ -456,76 +290,7 @@ def main():
         control_freak.scaled_cell = control_freak.cell_size * scale
         rect_size = max(1, int(control_freak.scaled_cell - 1))
         
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT: 
-                control_freak.is_running = False
-
-            if event.type == pygame.KEYDOWN:
-
-                if control_freak.gui.is_naming:
-                    if event.key == pygame.K_BACKSPACE:
-                        control_freak.gui.input_text = control_freak.gui.input_text[:-1]
-                    elif event.key == pygame.K_RETURN:
-                        control_freak.save_current_blueprint()
-                    elif len(control_freak.gui.input_text) < 25:
-                        control_freak.gui.input_text += event.unicode
-
-                if (event.key == pygame.K_k
-                    and 
-                    control_freak.saved_blueprint is not None
-                    and 
-                    control_freak.current_tool == PASTE
-                    ):
-                    control_freak.gui.is_naming = True
-                    control_freak.is_paused = True
-
-                if event.key == pygame.K_SPACE:
-                    control_freak.is_paused = not control_freak.is_paused
-
-                if event.key == pygame.K_e:
-                    control_freak.save_electro = not control_freak.save_electro
-
-                if event.key == pygame.K_1: control_freak.current_tool = CABLE
-                if event.key == pygame.K_2: control_freak.current_tool = TAIL
-                if event.key == pygame.K_3: control_freak.current_tool = ELECTRO
-                if event.key == pygame.K_4: control_freak.current_tool = SELECT
-                if event.key == pygame.K_5: control_freak.current_tool = PASTE
-
-                if keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL]:
-
-                    if event.key == pygame.K_MINUS:
-                        control_freak.visibility_scale = max(25, control_freak.visibility_scale - 5)
-
-                    elif event.key == pygame.K_PLUS: 
-                        control_freak.visibility_scale = min(250, control_freak.visibility_scale + 5)
-
-
-            if event.type == pygame.MOUSEBUTTONUP:
-                # 1 -> Linksklick (halt nur hoch, also nicht klick
-                #                  sondern maybe Linksreleas?)
-                if event.button == 1 and control_freak.current_tool == SELECT:
-                    if control_freak.select_start and control_freak.select_end:
-
-                        x1 = min(control_freak.select_start[0], control_freak.select_end[0])
-                        y1 = min(control_freak.select_start[1], control_freak.select_end[1])
-                        x2 = max(control_freak.select_start[0], control_freak.select_end[0])
-                        y2 = max(control_freak.select_start[1], control_freak.select_end[1])
-                        
-                        # Blaupause (relativ zur oberen linken Ecke x1, y1)
-                        blueprint = []
-                        for x in range(x1, x2 + 1):
-                            for y in range(y1, y2 + 1):
-                                val = control_freak.domain.get_grid_at(x, y)
-                                if val != EMPTY:
-                                    blueprint.append((x - x1, y - y1, val))
-                        
-                        control_freak.saved_blueprint = blueprint
-                        
-                        control_freak.current_tool = PASTE
-                    
-                    control_freak.select_start = None
-                    control_freak.select_end = None
-
+        control_freak.handle_input(keys = keys)
 
         mouse_buttons = pygame.mouse.get_pressed()
         mouse_x, mouse_y = pygame.mouse.get_pos()
@@ -537,57 +302,11 @@ def main():
             mouse_buttons = mouse_buttons
             )
         
-        if not (
-            (control_freak.gui.is_visible and 
-            control_freak.gui.sidebar_rect.collidepoint((mouse_x, mouse_y)))
-            or
-            control_freak.gui.toggle_button.collidepoint((mouse_x, mouse_y))
-            or 
-            control_freak.gui.is_naming
-        ):
-            # if mouse is over side bar, cickies shouldnt happen behind it
-            # but update should be done, so no if condition: continue
-            
-            real_x = mouse_x + control_freak.cam.camera_x
-            real_y = mouse_y + control_freak.cam.camera_y
-            
-            grid_x = int(real_x // control_freak.scaled_cell)
-            grid_y = int(real_y // control_freak.scaled_cell)
-
-            if 0 <= grid_x < grid_width and 0 <= grid_y < grid_height:
-                if mouse_buttons[0]: # Linksklick (setzen)
-                    
-                    if control_freak.current_tool == SELECT:
-
-                        if control_freak.select_start is None:
-                            control_freak.select_start = (grid_x, grid_y)
-
-                        control_freak.select_end = (grid_x, grid_y)
-                        
-                    elif control_freak.current_tool == PASTE:
-                        if control_freak.saved_blueprint:
-                            for rx, ry, val in control_freak.saved_blueprint:
-                                tx, ty = grid_x + rx, grid_y + ry
-
-                                if 0 <= tx < grid_width and 0 <= ty < grid_height:
-                                    # Strom soll nicht mit!!!!
-                                    if not control_freak.save_electro and val in (ELECTRO, TAIL): 
-                                        val = CABLE
-                                        control_freak.domain.active_list.discard((tx, ty))
-
-                                    control_freak.domain.set_grid_at(tx, ty, val)
-
-                                    if control_freak.save_electro:
-                                        control_freak.domain.active_list.add((tx, ty))
-                    else: 
-                        control_freak.domain.set_grid_at(grid_x, grid_y, control_freak.current_tool)
-
-                        if control_freak.current_tool in (ELECTRO, TAIL):
-                            control_freak.domain.active_list.add((grid_x, grid_y))
-
-                elif mouse_buttons[2]: # Rechtsklick (Löschen)
-                    control_freak.domain.set_grid_at(grid_x, grid_y, EMPTY)
-                    control_freak.domain.active_list.discard((grid_x, grid_y))
+        control_freak.handle_placement(
+            mouse_x = mouse_x,
+            mouse_y = mouse_y,
+            mouse_buttons = mouse_buttons
+        )
         
         control_freak.draw(rect_size)
         pygame.display.update()
